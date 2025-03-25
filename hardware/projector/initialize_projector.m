@@ -67,16 +67,30 @@ expmt.hardware.screen = scrProp;
 
 %% Load the projector fit
 
+% gui_dir = which('margo');
+% gui_dir = gui_dir(1:strfind(gui_dir,'/gui/'));
+% fName = 'projector_fit.mat';
+% 
+% if exist([gui_dir 'hardware/projector_fit/'],'dir') == 7 &&...
+%         exist([gui_dir 'hardware/projector_fit/' fName],'file') == 2
+%     load([gui_dir '/hardware/projector_fit/' fName]);
+% else
+%     return  
+% end
+
 gui_dir = which('margo');
-gui_dir = gui_dir(1:strfind(gui_dir,'\gui\'));
+gui_dir = gui_dir(1:strfind(gui_dir, [filesep 'gui' filesep]));
 fName = 'projector_fit.mat';
 
-if exist([gui_dir 'hardware\projector_fit\'],'dir') == 7 &&...
-        exist([gui_dir 'hardware\projector_fit\' fName],'file') == 2
-    load([gui_dir '\hardware\projector_fit\' fName]);
+proj_fit_dir = fullfile(gui_dir, 'hardware', 'projector_fit');
+proj_fit_path = fullfile(proj_fit_dir, fName);
+
+if exist(proj_fit_dir, 'dir') == 7 && exist(proj_fit_path, 'file') == 2
+    load(proj_fit_path);
 else
-    return  
+    return
 end
+
 
 if ~isfield(reg_params,'reg_fun')
     expmt.meta.finish = false;
@@ -91,7 +105,7 @@ im = peekdata(expmt.hardware.cam.vid,1);
 if cam_xPixels ~= reg_data.cam_xPixels || cam_yPixels ~= reg_data.cam_yPixels
     
     x_scale = cam_xPixels/reg_data.cam_xPixels;
-    y_scale = cam_yPixels/reg_data.cam_yPixels;
+    y_scale = cam_yPixels/reg_data.cam_yPixel\s;
     cam_x = reg_data.cam_xCoords*x_scale;
     cam_y = reg_data.cam_yCoords*y_scale;
     proj_x = reg_data.proj_xCoords;

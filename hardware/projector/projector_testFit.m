@@ -48,7 +48,15 @@ end
 
 %% Load the projector fit
 
-load([handles.gui_dir 'hardware\projector_fit\projector_fit.mat']);
+%load([handles.gui_dir 'hardware/projector_fit/projector_fit.mat']);
+
+fit_path = fullfile(handles.gui_dir, 'hardware', 'projector_fit', 'projector_fit.mat');
+if exist(fit_path, 'file')
+    load(fit_path);
+else
+    error('Projector calibration file not found at: %s', fit_path);
+end
+
 [cam_yPixels,cam_xPixels]=size(ref);
 
 if cam_xPixels ~= reg_data.cam_xPixels || cam_yPixels ~= reg_data.cam_yPixels

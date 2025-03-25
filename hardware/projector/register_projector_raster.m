@@ -273,11 +273,21 @@ reg_data.cam_yCoords = cam_y;
 reg_data.proj_xCoords = proj_x;
 reg_data.proj_yCoords = proj_y;
 
-if exist([handles.gui_dir 'hardware\projector_fit\'])
-    save([handles.gui_dir 'hardware\projector_fit\projector_fit.mat'],'reg_data');
+% if exist([handles.gui_dir 'hardware/projector_fit/'])
+%     save([handles.gui_dir 'hardware/projector_fit/projector_fit.mat'],'reg_data');
+% else
+%     mkdir([handles.gui_dir 'hardware/projector_fit/']);
+%     save([handles.gui_dir 'hardware/projector_fit/projector_fit.mat'],'reg_data');
+% end
+
+folder_path = fullfile(handles.gui_dir, 'hardware', 'projector_fit');
+file_path = fullfile(folder_path, 'projector_fit.mat');
+
+if exist(folder_path, 'dir')
+    save(file_path, 'reg_data');
 else
-    mkdir([handles.gui_dir 'hardware\projector_fit\']);
-    save([handles.gui_dir 'hardware\projector_fit\projector_fit.mat'],'reg_data');
+    mkdir(folder_path);
+    save(file_path, 'reg_data');
 end
 
 % close open projector window

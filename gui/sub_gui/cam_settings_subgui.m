@@ -32,26 +32,47 @@ if isfield(expmt.hardware.cam,'settings') && strcmpi(vid.Running,'off')
     [i_src,i_set]=cmpCamSettings(src,expmt.hardware.cam.settings);
     set_names = fieldnames(expmt.hardware.cam.settings);
     
-    for i = 1:length(i_src)
-        if ~isfield(info.(names{i_src(i)}),'ReadOnly') || ...
-                ~strcmpi(info.(names{i_src(i)}).ReadOnly,'always')
-            
-            src.(names{i_src(i)}) = ...
-                expmt.hardware.cam.settings.(set_names{i_set(i)});
+    % for i = 1:length(i_src)
+    %     if ~isfield(info.(names{i_src(i)}),'ReadOnly') || ...
+    %             ~strcmpi(info.(names{i_src(i)}).ReadOnly,'always')
+    % 
+    %         src.(names{i_src(i)}) = ...
+    %             expmt.hardware.cam.settings.(set_names{i_set(i)});
+    %     end
+    % end
+
+    % FPonce edit start
+     for i = 1:length(i_src)
+        prop = names{i_src(i)};  
+        is_command = isfield(info.(prop), 'Type') && strcmpi(info.(prop).Type, 'command');
+
+        % Check if the property is not always read-only
+        is_not_readonly = ~isfield(info.(prop), 'ReadOnly') || ...
+            ~strcmpi(info.(prop).ReadOnly, 'always');
+
+        if ~is_command && is_not_readonly
+            try
+                src.(prop) = expmt.hardware.cam.settings.(set_names{i_set(i)});
+            catch ME
+                warning('Could not restore property %s: %s', prop, ME.message);
+            end
         end
-    end
+     end
+    %FPonce edit end
 else
     prop_names = fieldnames(src);
     has_readonly = find(cellfun(@(n) isfield(info.(n),'ReadOnly'), prop_names));
     is_readonly = cellfun(@(n) strcmpi(info.(n).ReadOnly,'always'), ...
         prop_names(has_readonly));
     prop_names(has_readonly(is_readonly))=[];
+    %FPonce edit start
+    is_command = cellfun(@(n) isfield(info.(n), 'Type') && strcmpi(info.(n).Type, 'command'), prop_names);
+    prop_names(is_command) = [];
+    %FPonce edit end
     prop_vals = cellfun(@(n) src.(n), prop_names, 'UniformOutput', false);
     settings = cat(1,prop_names',prop_vals');
     expmt.hardware.cam.settings = struct(settings{:});
 end
-
-
 
 name_lengths = zeros(length(names),1);
 for i = 1:length(names)
@@ -63,6 +84,13 @@ hscale = max(name_lengths);
 nControls = 0;
 del = [];
 for i = 1:length(names)
+    %FPonce edit start
+    % Skip if name starts with 'Auto' or 'pgr'
+    if startsWith(names{i}, 'Auto') || startsWith(names{i}, 'pgr')
+        del = [del i];
+        continue;
+    end
+    %FPonce edit end
     field = info.(names{i});
     if (strcmp(field.Constraint,'bounded')&&numel(src.(names{i}))<2) || strcmp(field.Constraint,'enum')
         nControls = nControls + 1;
@@ -70,7 +98,7 @@ for i = 1:length(names)
         del = [del i];
     end
 end
-
+disp(names)
 names(del) = [];                % remove non-addressable properties
 nColumns = ceil(nControls/12);   % set column number
 

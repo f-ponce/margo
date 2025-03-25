@@ -57,3 +57,5 @@ Screen('DrawTextures', scr.window, stim.Tex, stim.source', ...
 
 % Flip to the screen
 scr.vbl = Screen('Flip', scr.window,scr.vbl +(scr.waitframes - 0.5)* scr.ifi);
+pause(2);
+Screen('CloseAll');
