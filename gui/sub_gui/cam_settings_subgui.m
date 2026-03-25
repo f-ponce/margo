@@ -1,486 +1,360 @@
 function cam_settings_subgui(expmt)
+% CAM_SETTINGS_SUBGUI - Camera settings GUI for FLIR Blackfly S via GenTL
+%
+% Does NOT stop the camera - properties are set while camera is running.
+% Controls: Exposure, Gain, Frame Rate, Gamma, Black Level
 
-% check to see if a camera exists
-if ~isfield(expmt.hardware.cam,'AdaptorName') || ...
-        ~isfield(expmt.hardware.cam,'DeviceIDs') || ...
-        ~isfield(expmt.hardware.cam,'ActiveMode')
+% --- Check camera exists and is initialized ---
+if ~isfield(expmt.hardware.cam,'vid') || ~isvalid(expmt.hardware.cam.vid)
+    errordlg('Camera not initialized. Please confirm camera in MARGO first.');
     return;
 end
 
-% get device properties
-if ~isfield(expmt.hardware.cam,'vid') || ...
-        (isfield(expmt.hardware.cam,'vid') && ~isvalid(expmt.hardware.cam.vid))
-    imaqreset;
-    pause(0.1);
-    vid = videoinput(expmt.hardware.cam.AdaptorName,expmt.hardware.cam.DeviceIDs{1},expmt.hardware.cam.ActiveMode{:});
-else
-    vid = expmt.hardware.cam.vid;
-end
-if strcmpi(vid.Running,'on')
-    dn = findobj('Tag','disp_note');
-    gui_notify('closing open camera session to adjust settings',dn);
-    stop(vid);
+vid = expmt.hardware.cam.vid;
+src = expmt.hardware.cam.src;
+
+% NOTE: Do NOT stop the camera. GenTL properties are only writable while
+% the camera is running. Stopping locks all source properties.
+
+% --- Read current values ---
+try, exp_val  = src.ExposureTime;               catch, exp_val  = 2400;    end
+try, exp_auto = src.ExposureAuto;               catch, exp_auto = 'Off';   end
+try, gain_val = src.Gain;                       catch, gain_val = 0;       end
+try, gain_auto= src.GainAuto;                   catch, gain_auto= 'Off';   end
+try, fps_val  = src.AcquisitionFrameRate;       catch, fps_val  = 30;      end
+try, fps_en   = src.AcquisitionFrameRateEnable; catch, fps_en   = 'False'; end
+try, gam_val  = src.Gamma;                      catch, gam_val  = 0.8;     end
+try, gam_en   = src.GammaEnable;                catch, gam_en   = 'False'; end
+try, bl_val   = src.BlackLevel;                 catch, bl_val   = 0;       end
+
+% Clamp to valid ranges
+exp_val  = max(4,    min(29999999, exp_val));
+gain_val = max(0,    min(47.9943,  gain_val));
+fps_val  = max(1,    min(226.4431, fps_val));
+gam_val  = max(0.25, min(4.0,      gam_val));
+bl_val   = max(-5,   min(10,       bl_val));
+
+% Boolean states
+exp_is_auto  = ~strcmpi(exp_auto, 'Off');
+gain_is_auto = ~strcmpi(gain_auto,'Off');
+fps_enabled  =  strcmpi(fps_en,   'True');
+gam_enabled  =  strcmpi(gam_en,   'True');
+
+% =========================================================================
+% GUI Layout
+% =========================================================================
+bg    = get(0,'defaultUicontrolBackgroundColor');
+fig_w = 500;
+fig_h = 400;
+
+f = figure('Name','Camera Settings','NumberTitle','off',...
+    'MenuBar','none','Toolbar','none','Resize','off',...
+    'Units','pixels','Position',[200 200 fig_w fig_h],...
+    'Color',bg,...
+    'CloseRequestFcn',@(hObj,~) do_close(hObj));
+
+% Column positions
+xL  = 10;    % label x
+xCB = 170;   % checkbox x
+xE  = 255;   % edit box x
+xS  = 320;   % slider x
+wS  = 160;   % slider width
+wE  = 60;    % edit width
+rH  = 48;    % row height
+hH  = 22;    % header height
+pad = 10;
+
+y = fig_h - pad;
+
+% Store handles
+h.src     = src;
+h.vid     = vid;
+h.expmt   = expmt;
+h.gui_fig = findall(groot,'Name','margo');
+
+% =========================================================================
+% SECTION: ACQUISITION
+% =========================================================================
+y = y - hH;
+uicontrol('Parent',f,'Style','text','String','ACQUISITION',...
+    'Units','pixels','Position',[xL y fig_w-20 hH],...
+    'FontSize',9,'FontWeight','bold','ForegroundColor',[0.2 0.2 0.5],...
+    'BackgroundColor',bg,'HorizontalAlignment','left');
+
+% --- EXPOSURE ---
+y = y - rH;
+uicontrol('Parent',f,'Style','text','String','Exposure (µs)',...
+    'Units','pixels','Position',[xL y+18 155 16],...
+    'FontSize',8,'FontWeight','bold','BackgroundColor',bg,'HorizontalAlignment','left');
+h.exp_cb = uicontrol('Parent',f,'Style','checkbox','String','Auto',...
+    'Units','pixels','Position',[xCB y+16 65 18],...
+    'Value',double(exp_is_auto),'FontSize',8,'BackgroundColor',bg);
+h.exp_eb = uicontrol('Parent',f,'Style','edit',...
+    'String',num2str(round(exp_val)),...
+    'Units','pixels','Position',[xE y+2 wE 20],...
+    'FontSize',8,'BackgroundColor','white',...
+    'Enable',onoff(~exp_is_auto));
+h.exp_sl = uicontrol('Parent',f,'Style','slider',...
+    'Min',0,'Max',1,'Value',log2sl(exp_val,4,29999999),...
+    'Units','pixels','Position',[xS y+4 wS 16],...
+    'Enable',onoff(~exp_is_auto));
+
+% --- GAIN ---
+y = y - rH;
+uicontrol('Parent',f,'Style','text','String','Gain (dB)',...
+    'Units','pixels','Position',[xL y+18 155 16],...
+    'FontSize',8,'FontWeight','bold','BackgroundColor',bg,'HorizontalAlignment','left');
+h.gain_cb = uicontrol('Parent',f,'Style','checkbox','String','Auto',...
+    'Units','pixels','Position',[xCB y+16 65 18],...
+    'Value',double(gain_is_auto),'FontSize',8,'BackgroundColor',bg);
+h.gain_eb = uicontrol('Parent',f,'Style','edit',...
+    'String',sprintf('%.2f',gain_val),...
+    'Units','pixels','Position',[xE y+2 wE 20],...
+    'FontSize',8,'BackgroundColor','white',...
+    'Enable',onoff(~gain_is_auto));
+h.gain_sl = uicontrol('Parent',f,'Style','slider',...
+    'Min',0,'Max',1,'Value',lin2sl(gain_val,0,47.9943),...
+    'Units','pixels','Position',[xS y+4 wS 16],...
+    'Enable',onoff(~gain_is_auto));
+
+% --- FRAME RATE ---
+y = y - rH;
+uicontrol('Parent',f,'Style','text','String','Frame Rate (fps)',...
+    'Units','pixels','Position',[xL y+18 155 16],...
+    'FontSize',8,'FontWeight','bold','BackgroundColor',bg,'HorizontalAlignment','left');
+h.fps_cb = uicontrol('Parent',f,'Style','checkbox','String','Enable',...
+    'Units','pixels','Position',[xCB y+16 75 18],...
+    'Value',double(fps_enabled),'FontSize',8,'BackgroundColor',bg);
+h.fps_eb = uicontrol('Parent',f,'Style','edit',...
+    'String',sprintf('%.1f',fps_val),...
+    'Units','pixels','Position',[xE y+2 wE 20],...
+    'FontSize',8,'BackgroundColor','white',...
+    'Enable',onoff(fps_enabled));
+h.fps_sl = uicontrol('Parent',f,'Style','slider',...
+    'Min',0,'Max',1,'Value',lin2sl(fps_val,1,226.4431),...
+    'Units','pixels','Position',[xS y+4 wS 16],...
+    'Enable',onoff(fps_enabled));
+
+% =========================================================================
+% SECTION: IMAGE
+% =========================================================================
+y = y - 8 - hH;
+uicontrol('Parent',f,'Style','text','String','IMAGE',...
+    'Units','pixels','Position',[xL y fig_w-20 hH],...
+    'FontSize',9,'FontWeight','bold','ForegroundColor',[0.2 0.2 0.5],...
+    'BackgroundColor',bg,'HorizontalAlignment','left');
+
+% --- GAMMA ---
+y = y - rH;
+uicontrol('Parent',f,'Style','text','String','Gamma',...
+    'Units','pixels','Position',[xL y+18 155 16],...
+    'FontSize',8,'FontWeight','bold','BackgroundColor',bg,'HorizontalAlignment','left');
+h.gam_cb = uicontrol('Parent',f,'Style','checkbox','String','Enable',...
+    'Units','pixels','Position',[xCB y+16 75 18],...
+    'Value',double(gam_enabled),'FontSize',8,'BackgroundColor',bg);
+h.gam_eb = uicontrol('Parent',f,'Style','edit',...
+    'String',sprintf('%.3f',gam_val),...
+    'Units','pixels','Position',[xE y+2 wE 20],...
+    'FontSize',8,'BackgroundColor','white',...
+    'Enable',onoff(gam_enabled));
+h.gam_sl = uicontrol('Parent',f,'Style','slider',...
+    'Min',0,'Max',1,'Value',lin2sl(gam_val,0.25,4.0),...
+    'Units','pixels','Position',[xS y+4 wS 16],...
+    'Enable',onoff(gam_enabled));
+
+% --- BLACK LEVEL ---
+y = y - rH;
+uicontrol('Parent',f,'Style','text','String','Black Level',...
+    'Units','pixels','Position',[xL y+18 155 16],...
+    'FontSize',8,'FontWeight','bold','BackgroundColor',bg,'HorizontalAlignment','left');
+h.bl_eb = uicontrol('Parent',f,'Style','edit',...
+    'String',sprintf('%.3f',bl_val),...
+    'Units','pixels','Position',[xE y+2 wE 20],...
+    'FontSize',8,'BackgroundColor','white');
+h.bl_sl = uicontrol('Parent',f,'Style','slider',...
+    'Min',0,'Max',1,'Value',lin2sl(bl_val,-5,10),...
+    'Units','pixels','Position',[xS y+4 wS 16]);
+
+% Apply & Close
+uicontrol('Parent',f,'Style','pushbutton','String','Apply & Close',...
+    'Units','pixels','Position',[fig_w-148 8 136 28],...
+    'FontSize',9,'FontWeight','bold',...
+    'Callback',@(s,~) do_close(f));
+
+% Store handles
+set(f,'UserData',h);
+
+% =========================================================================
+% ASSIGN CALLBACKS
+% =========================================================================
+% Exposure
+set(h.exp_sl,'Callback', @(s,~) on_slider(f,'ExposureTime',  s.Value,'log', 4,29999999, h.exp_eb));
+set(h.exp_eb,'Callback', @(s,~) on_edit(  f,'ExposureTime',  s,      'log', 4,29999999, h.exp_sl));
+set(h.exp_cb,'Callback', @(s,~) on_auto(  f,'ExposureAuto',  s,'Off','Continuous', h.exp_sl,h.exp_eb));
+
+% Gain
+set(h.gain_sl,'Callback',@(s,~) on_slider(f,'Gain',          s.Value,'lin', 0,47.9943,  h.gain_eb));
+set(h.gain_eb,'Callback',@(s,~) on_edit(  f,'Gain',          s,      'lin', 0,47.9943,  h.gain_sl));
+set(h.gain_cb,'Callback', @(s,~) on_auto( f,'GainAuto',      s,'Off','Continuous', h.gain_sl,h.gain_eb));
+
+% Frame Rate
+set(h.fps_sl,'Callback', @(s,~) on_slider(f,'AcquisitionFrameRate', s.Value,'lin',1,226.4431,h.fps_eb));
+set(h.fps_eb,'Callback', @(s,~) on_edit(  f,'AcquisitionFrameRate', s,      'lin',1,226.4431,h.fps_sl));
+set(h.fps_cb,'Callback', @(s,~) on_enable(f,'AcquisitionFrameRateEnable','AcquisitionFrameRate', s, h.fps_sl,h.fps_eb));
+
+% Gamma
+set(h.gam_sl,'Callback', @(s,~) on_slider(f,'Gamma',         s.Value,'lin',0.25,4.0, h.gam_eb));
+set(h.gam_eb,'Callback', @(s,~) on_edit(  f,'Gamma',         s,      'lin',0.25,4.0, h.gam_sl));
+set(h.gam_cb,'Callback', @(s,~) on_enable(f,'GammaEnable','Gamma',   s, h.gam_sl,h.gam_eb));
+
+% Black Level
+set(h.bl_sl,'Callback',  @(s,~) on_slider(f,'BlackLevel',    s.Value,'lin',-5,10, h.bl_eb));
+set(h.bl_eb,'Callback',  @(s,~) on_edit(  f,'BlackLevel',    s,      'lin',-5,10, h.bl_sl));
+
 end
 
-src = getselectedsource(vid);
-info = propinfo(src);
-names = fieldnames(info);
+% =========================================================================
+% CALLBACKS
+% =========================================================================
 
-if isfield(expmt.hardware.cam,'settings') && strcmpi(vid.Running,'off')
-    [i_src,i_set]=cmpCamSettings(src,expmt.hardware.cam.settings);
-    set_names = fieldnames(expmt.hardware.cam.settings);
-    for i = 1:length(i_src)
-        prop = names{i_src(i)};  
-        is_command = isfield(info.(prop), 'Type') && strcmpi(info.(prop).Type, 'command');
-        is_not_readonly = ~isfield(info.(prop), 'ReadOnly') || ~strcmpi(info.(prop).ReadOnly, 'always');
-        if ~is_command && is_not_readonly
+function on_slider(f, prop, sl_val, scale, mn, mx, eb)
+    h   = get(f,'UserData');
+    raw = sl2val(sl_val, mn, mx, scale);
+    raw = max(mn, min(mx, raw));
+    set(eb,'String', fmt(raw, prop));
+    try_set(h.src, prop, raw);
+    h = save_prop(h, prop, raw);
+    set(f,'UserData',h);
+end
+
+function on_edit(f, prop, eb, scale, mn, mx, sl)
+    h   = get(f,'UserData');
+    raw = str2double(get(eb,'String'));
+    if isnan(raw), return; end
+    raw = max(mn, min(mx, raw));
+    set(eb,'String', fmt(raw, prop));
+    set(sl,'Value', val2sl(raw, mn, mx, scale));
+    try_set(h.src, prop, raw);
+    h = save_prop(h, prop, raw);
+    set(f,'UserData',h);
+end
+
+function on_auto(f, auto_prop, cb, off_val, on_val, sl, eb)
+% For Exposure/Gain: checkbox ON = auto mode, controls disabled
+    h = get(f,'UserData');
+    if cb.Value
+        try_set(h.src, auto_prop, on_val);
+        h = save_prop(h, auto_prop, on_val);
+        set(sl,'Enable','off');
+        set(eb,'Enable','off');
+    else
+        try_set(h.src, auto_prop, off_val);
+        h = save_prop(h, auto_prop, off_val);
+        set(sl,'Enable','on');
+        set(eb,'Enable','on');
+    end
+    set(f,'UserData',h);
+end
+
+function on_enable(f, en_prop, val_prop, cb, sl, eb)
+% For FrameRate/Gamma: checkbox ON = feature enabled, controls active
+    h = get(f,'UserData');
+    if cb.Value
+        try_set(h.src, en_prop, 'True');
+        h = save_prop(h, en_prop, 'True');
+        set(sl,'Enable','on');
+        set(eb,'Enable','on');
+    else
+        try_set(h.src, en_prop, 'False');
+        h = save_prop(h, en_prop, 'False');
+        set(sl,'Enable','off');
+        set(eb,'Enable','off');
+    end
+    set(f,'UserData',h);
+end
+
+function do_close(f)
+    set(f,'CloseRequestFcn','');
+    h = get(f,'UserData');
+    if isstruct(h) && isfield(h,'src')
+        props = {'ExposureTime','ExposureAuto','Gain','GainAuto',...
+            'AcquisitionFrameRate','AcquisitionFrameRateEnable',...
+            'Gamma','GammaEnable','BlackLevel'};
+        for i = 1:length(props)
             try
-                src.(prop) = expmt.hardware.cam.settings.(set_names{i_set(i)});
-            catch ME
-                warning('Could not restore property %s: %s', prop, ME.message);
+                h = save_prop(h, props{i}, h.src.(props{i}));
+            catch
             end
         end
     end
-else
-    prop_names = fieldnames(src);
-    has_readonly = find(cellfun(@(n) isfield(info.(n),'ReadOnly'), prop_names));
-    is_readonly = cellfun(@(n) strcmpi(info.(n).ReadOnly,'always'), prop_names(has_readonly));
-    prop_names(has_readonly(is_readonly)) = [];
-    is_command = cellfun(@(n) isfield(info.(n), 'Type') && strcmpi(info.(n).Type, 'command'), prop_names);
-    prop_names(is_command) = [];
-    prop_vals = cellfun(@(n) src.(n), prop_names, 'UniformOutput', false);
-    settings = cat(1,prop_names',prop_vals');
-    expmt.hardware.cam.settings = struct(settings{:});
+    delete(f);
 end
 
-% Filter properties
-name_lengths = zeros(length(names),1);
-del = [];
-nControls = 0;
-for i = 1:length(names)
-    name_lengths(i) = numel(names{i});
-    if startsWith(names{i}, 'Auto') || startsWith(names{i}, 'pgr')
-        del = [del i];
-        continue;
-    end
-    field = info.(names{i});
-    if (strcmp(field.Constraint,'bounded') && numel(src.(names{i})) < 2) || strcmp(field.Constraint,'enum')
-        nControls = nControls + 1;
-    else
-        del = [del i];
+% =========================================================================
+% HELPERS
+% =========================================================================
+
+function try_set(src, prop, val)
+    try
+        src.(prop) = val;
+    catch ME
+        warning('Could not set %s: %s', prop, ME.message);
     end
 end
-names(del) = [];
 
-%% UI Setup
-screen_size = get(0,'ScreenSize');
-fig_width = 500;
-fig_height = 600;
-panel_height = nControls * 50 + 100;  % height for scrollable panel
-
-f = figure('Name','Camera Settings','Units','pixels', 'Position',[100 100 fig_width fig_height], ...
-    'MenuBar','none','Toolbar','none','NumberTitle','off','Resize','off');
-
-scroll_container = uipanel('Parent', f, 'Units','normalized', 'Position',[0 0 0.95 1]);
-scroll_panel = uipanel('Parent', scroll_container, 'Units','pixels', 'Position',[0 0 fig_width-20 panel_height]);
-
-scrollbar = uicontrol('Parent', f, 'Style', 'slider', 'Units','normalized', ...
-    'Position', [0.95 0 0.05 1], 'Min', 0, 'Max', 1, 'Value', 1, ...
-    'Callback', @(src,~) scroll_callback(src, scroll_panel, panel_height, fig_height));
-
-%% Create UI elements
-current_height = panel_height - 50;
-ctl_idx = 0;
-for i = 1:length(names)
-    field = info.(names{i});
-    if strcmp(field.Constraint,'bounded')
-        ctl_idx = ctl_idx + 1;
-        uicontrol('Parent', scroll_panel, 'Style','text', 'String', names{i}, ...
-            'Position', [20 current_height 150 20], 'HorizontalAlignment','left');
-        uival(ctl_idx) = uicontrol('Parent', scroll_panel, 'Style','edit', 'String', num2str(src.(names{i})), ...
-            'Position', [180 current_height 60 20], 'Callback', @edit_Callback);
-        uival(ctl_idx).UserData = ctl_idx;
-        uictl(ctl_idx) = uicontrol('Parent', scroll_panel, 'Style','slider', 'Min', field.ConstraintValue(1), ...
-            'Max', field.ConstraintValue(2), 'Value', src.(names{i}), 'Position', [250 current_height 200 20], ...
-            'Callback', @slider_Callback);
-        uictl(ctl_idx).UserData = ctl_idx;
-        current_height = current_height - 40;
-    elseif strcmp(field.Constraint,'enum')
-        ctl_idx = ctl_idx + 1;
-        uicontrol('Parent', scroll_panel, 'Style','text', 'String', names{i}, ...
-            'Position', [20 current_height 150 20], 'HorizontalAlignment','left');
-        uictl(ctl_idx) = uicontrol('Parent', scroll_panel, 'Style','popupmenu', 'String', field.ConstraintValue, ...
-            'Position', [180 current_height 200 20], 'Callback', @popupmenu_Callback);
-        uictl(ctl_idx).UserData = ctl_idx;
-        str_list = get(uictl(ctl_idx),'string');
-        cur_val = find(strcmp(src.(names{i}), str_list));
-        if ~isempty(cur_val)
-            set(uictl(ctl_idx), 'Value', cur_val);
+function h = save_prop(h, prop, val)
+    h.expmt.hardware.cam.settings.(prop) = val;
+    if ~isempty(h.gui_fig) && isvalid(h.gui_fig)
+        try
+            expmt = getappdata(h.gui_fig,'expmt');
+            expmt.hardware.cam.settings.(prop) = val;
+            setappdata(h.gui_fig,'expmt',expmt);
+        catch
         end
-        current_height = current_height - 40;
     end
 end
 
-guiData.uictl = uictl;
-if exist('uival','var') && ~isempty(uival)
-    guiData.uival = uival;
-else
-    guiData.uival = [];
-end
-guiData.names = names;
-guiData.expmt = expmt;
-guiData.cam_src = src;
-set(f,'UserData',guiData);
-
-end
-
-function scroll_callback(slider, panel, panel_height, fig_height)
-    val = get(slider, 'Value');
-    y_offset = (panel_height - fig_height) * val;
-    panel.Position(2) = -y_offset;
-end
-
-function slider_Callback(src,~)
-    pf = get(src,'parent');
-    fig = ancestor(pf, 'figure');
-    data = get(fig, 'UserData');
-    names = data.names;
-    vals = data.uival;
-    set(vals(src.UserData),'string',sprintf('%0.2f',src.Value));
-    data.expmt.hardware.cam.settings.(names{src.UserData}) = src.Value;
-    data.cam_src.(names{src.UserData}) = src.Value;
-    set(fig,'UserData',data);
-end
-
-function popupmenu_Callback(src,~)
-    pf = get(src,'parent');
-    fig = ancestor(pf, 'figure');
-    data = get(fig, 'UserData');
-    names = data.names;
-    str_list = get(src,'string');
-    val = str_list{get(src,'value')};
-    data.expmt.hardware.cam.settings.(names{src.UserData}) = val;
-    data.cam_src.(names{src.UserData}) = val;
-    set(fig,'UserData',data);
-end
-
-function edit_Callback(src,~)
-    pf = get(src,'parent');
-    fig = ancestor(pf, 'figure');
-    data = get(fig, 'UserData');
-    names = data.names;
-    ctls = data.uictl;
-    val = str2double(get(src,'string'));
-    info = propinfo(data.cam_src);
-    field = info.(names{src.UserData});
-    if isfield(field,'Constraint')
-        val = max(min(val, field.ConstraintValue(2)), field.ConstraintValue(1));
+function s = val2sl(v, mn, mx, scale)
+    if strcmp(scale,'log')
+        if mn <= 0, mn = 1; end
+        s = (log(max(v,mn)) - log(mn)) / (log(mx) - log(mn));
+    else
+        if mx == mn, s = 0; return; end
+        s = (v - mn) / (mx - mn);
     end
-    set(ctls(src.UserData),'value',val);
-    data.expmt.hardware.cam.settings.(names{src.UserData}) = val;
-    data.cam_src.(names{src.UserData}) = val;
-    src.String = sprintf('%0.2f',val);
-    set(fig,'UserData',data);
+    s = max(0, min(1, s));
 end
 
+function v = sl2val(s, mn, mx, scale)
+    if strcmp(scale,'log')
+        if mn <= 0, mn = 1; end
+        v = exp(log(mn) + s*(log(mx) - log(mn)));
+    else
+        v = mn + s*(mx - mn);
+    end
+end
 
+function s = log2sl(v, mn, mx)
+    s = val2sl(v, mn, mx, 'log');
+end
 
+function s = lin2sl(v, mn, mx)
+    s = val2sl(v, mn, mx, 'lin');
+end
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-% function cam_settings_subgui(expmt)
-% 
-% % check to see if a camera exists
-% if ~isfield(expmt.hardware.cam,'AdaptorName') || ...
-%         ~isfield(expmt.hardware.cam,'DeviceIDs') || ...
-%         ~isfield(expmt.hardware.cam,'ActiveMode')
-%     return;
-% end
-% 
-% % get device properties
-% if ~isfield(expmt.hardware.cam,'vid') || ...
-%         (isfield(expmt.hardware.cam,'vid') && ~isvalid(expmt.hardware.cam.vid))
-%     imaqreset;
-%     pause(0.1);
-%     vid = videoinput(expmt.hardware.cam.AdaptorName,expmt.hardware.cam.DeviceIDs{1},expmt.hardware.cam.ActiveMode{:});
-% else
-%     vid = expmt.hardware.cam.vid;
-% end
-% if strcmpi(vid.Running,'on')
-%     dn = findobj('Tag','disp_note');
-%     gui_notify('closing open camera session to adjust settings',dn);
-%     stop(vid);
-% end
-% 
-% src = getselectedsource(vid);
-% info = propinfo(src);
-% names = fieldnames(info);
-% 
-% if isfield(expmt.hardware.cam,'settings') && strcmpi(vid.Running,'off')
-% 
-%     % query saved cam settings
-%     [i_src,i_set]=cmpCamSettings(src,expmt.hardware.cam.settings);
-%     set_names = fieldnames(expmt.hardware.cam.settings);
-% 
-%     % for i = 1:length(i_src)
-%     %     if ~isfield(info.(names{i_src(i)}),'ReadOnly') || ...
-%     %             ~strcmpi(info.(names{i_src(i)}).ReadOnly,'always')
-%     % 
-%     %         src.(names{i_src(i)}) = ...
-%     %             expmt.hardware.cam.settings.(set_names{i_set(i)});
-%     %     end
-%     % end
-% 
-%     % FPonce edit start
-%      for i = 1:length(i_src)
-%         prop = names{i_src(i)};  
-%         is_command = isfield(info.(prop), 'Type') && strcmpi(info.(prop).Type, 'command');
-% 
-%         % Check if the property is not always read-only
-%         is_not_readonly = ~isfield(info.(prop), 'ReadOnly') || ...
-%             ~strcmpi(info.(prop).ReadOnly, 'always');
-% 
-%         if ~is_command && is_not_readonly
-%             try
-%                 src.(prop) = expmt.hardware.cam.settings.(set_names{i_set(i)});
-%             catch ME
-%                 warning('Could not restore property %s: %s', prop, ME.message);
-%             end
-%         end
-%      end
-%     %FPonce edit end
-% else
-%     prop_names = fieldnames(src);
-%     has_readonly = find(cellfun(@(n) isfield(info.(n),'ReadOnly'), prop_names));
-%     is_readonly = cellfun(@(n) strcmpi(info.(n).ReadOnly,'always'), ...
-%         prop_names(has_readonly));
-%     prop_names(has_readonly(is_readonly))=[];
-%     %FPonce edit start
-%     is_command = cellfun(@(n) isfield(info.(n), 'Type') && strcmpi(info.(n).Type, 'command'), prop_names);
-%     prop_names(is_command) = [];
-%     %FPonce edit end
-%     prop_vals = cellfun(@(n) src.(n), prop_names, 'UniformOutput', false);
-%     settings = cat(1,prop_names',prop_vals');
-%     expmt.hardware.cam.settings = struct(settings{:});
-% end
-% 
-% name_lengths = zeros(length(names),1);
-% for i = 1:length(names)
-%     name_lengths(i) = numel(names{i});
-% end
-% hscale = max(name_lengths);
-% 
-% %% Determine the size of the UI based on how many elements need to be populated
-% nControls = 0;
-% del = [];
-% for i = 1:length(names)
-%     %FPonce edit start
-%     % Skip if name starts with 'Auto' or 'pgr'
-%     if startsWith(names{i}, 'Auto') || startsWith(names{i}, 'pgr')
-%         del = [del i];
-%         continue;
-%     end
-%     %FPonce edit end
-%     field = info.(names{i});
-%     if (strcmp(field.Constraint,'bounded')&&numel(src.(names{i}))<2) || strcmp(field.Constraint,'enum')
-%         nControls = nControls + 1;
-%     else
-%         del = [del i];
-%     end
-% end
-% disp(names)
-% names(del) = [];                % remove non-addressable properties
-% nColumns = ceil(nControls/12);   % set column number
-% 
-% %% get units of reference controls to populate UI
-% 
-% gui_fig = findall(groot,'Name','margo');
-% ref_slider = findall(gui_fig,'Tag','ROI_thresh_slider');
-% ref_label = findall(gui_fig,'Tag','ROI_thresh_label');
-% ref_edit = findall(gui_fig,'Tag','edit_IR_intensity');
-% ref_popup = findall(gui_fig,'Tag','microcontroller_popupmenu');
-% slider_w = ref_slider.Position(3);
-% edit_h = ref_edit.Position(4);
-% edit_w = ref_edit.Position(3)*1.2;
-% slider_h = edit_h;
-% menu_h = ref_popup.Position(4);
-% menu_w = ref_popup.Position(3);
-% label_h = ref_label.Position(4);
-% w_per_char = ref_label.Position(3)/numel(ref_label.String)*1.4;
-% hspacer = ref_edit.Position(3);
-% pad = edit_h*2;
-% current_height = 0;
-% 
-% %%
-% 
-% %  Create and then hide the UI as it is being constructed.
-% fpos = gui_fig.Position;
-% col_w = slider_w + edit_w*2 + hspacer;
-% fig_size = [fpos(1:2)+2 col_w*nColumns (edit_h+pad)*12+pad];
-% 
-% f = figure('Visible','on','Units','characters',...
-%     'Position',fig_size,'Name','Camera Settings');
-% set(f,'MenuBar','none','Toolbar','none','resize','off','NumberTitle','off');
-% 
-% % initialize ui scaling components
-% uival(1) = uicontrol('Style','text','string','','Position',[0 0 0 0]);
-% fw = f.Position(3);
-% fh = f.Position(4);
-% 
-% ct = 0;
-% 
-% 
-% for i = 1:length(names)
-% 
-%     field = info.(names{i});
-%     if strcmp(field.Constraint,'bounded')
-%         current_height = current_height + edit_h + pad;
-%         ct = ct + 1;
-% 
-%         uival(i) = uicontrol('Style','edit','string',num2str(src.(names{i})),...
-%             'Units','characters','Position',...
-%             [hspacer + col_w*floor((i-1)/12), ...
-%             (fh-current_height), edit_w, edit_h],...
-%             'FontUnits','normalized','HorizontalAlignment','center','Callback',@edit_Callback);
-% 
-%         uival(i).UserData = i;
-%         uictl(i) = uicontrol('Style','slider','Min',field.ConstraintValue(1),...
-%             'Max',field.ConstraintValue(2),'value',src.(names{i}),...
-%            'Units','characters','Position',...
-%            [sum(uival(i).Position([1,3]))+hspacer/2,...
-%            (fh-current_height), slider_w, slider_h],...
-%            'FontUnits','normalized','Callback',@slider_Callback);
-% 
-%         uictl(i).UserData = i;
-%         uilbl(i) = uicontrol('Style','text','string',names{i},...
-%             'Units','characters','Position',...
-%             [hspacer+col_w*floor((i-1)/12) sum(uictl(i).Position([2 4]))++label_h/4 ...
-%             numel(names{i})*w_per_char label_h],...
-%             'FontUnits','normalized','HorizontalAlignment','left');
-% 
-%         bound1 = sprintf('%0.2f',field.ConstraintValue(2));
-%         uicontrol('Style','text','string',bound1,...
-%             'Units','characters','Position',...
-%             [sum(uictl(i).Position([1 3]))-numel(bound1)*w_per_char,...
-%             sum(uictl(i).Position([2 4]))++label_h/4, numel(bound1)*w_per_char, label_h],...
-%             'FontUnits','normalized','HorizontalAlignment','right');
-% 
-%         bound2 = sprintf('%0.2f',field.ConstraintValue(1));
-%         uicontrol('Style','text','string',bound2,...
-%             'Units','characters','Position',...
-%             [uictl(i).Position(1), sum(uictl(i).Position([2 4]))++label_h/4, ...
-%             numel(bound2)*w_per_char, label_h],...
-%             'FontUnits','normalized','HorizontalAlignment','left');
-% %         uictl(i).Units = 'normalized';
-% %         uilbl(i).Units = 'normalized';
-% %         uival(i).Units = 'normalized';
-% 
-% 
-%     end
-% 
-%     if strcmp(field.Constraint,'enum')
-%         ct = ct + 1;
-%         current_height = current_height + menu_h + pad;
-%         uictl(i) = uicontrol('Style','popupmenu','string',field.ConstraintValue,...
-%                 'Units','characters','Position',...
-%                 [col_w*floor((i-1)/12)+hspacer, fh-current_height, menu_w, menu_h],...
-%                 'FontUnits','normalized','Callback',@popupmenu_Callback);
-%         uictl(i).UserData = i;
-%         uilbl(i) = uicontrol('Style','text','string',names{i},...
-%             'Units','characters','Position',...
-%             [hspacer+col_w*floor((i-1)/12), sum(uictl(i).Position([2 4]))++label_h/4, ...
-%             numel(names{i})*w_per_char, label_h],...
-%             'FontUnits','normalized','HorizontalAlignment','left');
-% 
-% %         uictl(i).Units = 'normalized';
-% %         uilbl(i).Units = 'normalized';
-% 
-%         % find current value from src
-%         str_list = get(uictl(i),'string');
-%         cur_val = 1;
-%         for j = 1:length(str_list)
-%             if strcmp(src.(names{i}),str_list{j})
-%             cur_val = j;
-%             end
-%         end
-% 
-%         set(uictl(i),'value',cur_val);
-% 
-%     end
-% 
-%     % reset current height to zero for new column
-%     if ~mod(i,12)
-%         current_height = 0;
-%     end
-% 
-%     guiData.uictl = uictl;
-%     guiData.uival = uival;
-%     guiData.names = names;
-%     guiData.expmt = expmt;
-%     guiData.cam_src = src;
-%     set(f,'UserData',guiData);
-% 
-% end
-% 
-% if (strcmpi(vid.Previewing,'off') && strcmpi(vid.Running,'on'))
-%     set(findall(f,'-property','Enable'),'Enable','off');
-% end
-% end
-% 
-% function slider_Callback(src,event)
-% 
-%     pf = get(src,'parent');     % get parent fig handle
-%     data = pf.UserData;         % retrieve data stored in fig handle
-%     names = data.names;
-%     vals= data.uival;
-% 
-%     % update coupled UI component
-%     set(vals(src.UserData),'string',sprintf('%0.2f',src.Value));
-% 
-%     % update camera source and settings
-%     data.expmt.hardware.cam.settings.(names{src.UserData}) = get(src,'value');
-%     data.cam_src.(names{src.UserData}) = get(src,'value');
-%     set(pf,'UserData',data);
-% 
-% end
-% 
-% function popupmenu_Callback(src,event)
-% 
-%     pf = get(src,'parent');         % get parent fig handle
-%     data = pf.UserData;             % retrieve data stored in fig handle
-%     names = data.names;
-%     str_list = get(src,'string');
-% 
-%     % update camera source and settings with current value of src.string
-%     data.expmt.hardware.cam.settings.(names{src.UserData}) = str_list{get(src,'value')};  
-%     data.cam_src.(names{src.UserData}) = str_list{get(src,'value')};
-%     set(pf,'UserData',data);
-% 
-% end
-% 
-% function edit_Callback(src,event)
-% 
-%     pf = get(src,'parent');     % get parent fig and stored data
-%     data = pf.UserData;
-%     names = data.names;
-%     ctls = data.uictl;
-% 
-%     % update camera source and settings with current value of src.string
-%     val = str2double(get(src,'string'));
-%     info = propinfo(data.cam_src);
-%     if isfield(info,(names{src.UserData})) && ...
-%             isfield(info.(names{src.UserData}),'Constraint')
-%         if val < info.(names{src.UserData}).ConstraintValue(1)
-%             val = info.(names{src.UserData}).ConstraintValue(1);
-%         elseif val > info.(names{src.UserData}).ConstraintValue(2)
-%             val = info.(names{src.UserData}).ConstraintValue(2);
-%         end
-%     end
-% 
-%     % update coupled UI component Experiment Data
-%     set(ctls(src.UserData),'value',val);   
-%     data.expmt.hardware.cam.settings.(names{src.UserData}) = val;  
-%     data.cam_src.(names{src.UserData}) = val;
-%     src.String = sprintf('%0.2f',val);
-%     set(pf,'UserData',data); 
-% 
-% end
+function str = fmt(v, prop)
+    switch prop
+        case 'ExposureTime'
+            str = sprintf('%d', round(v));
+        case 'AcquisitionFrameRate'
+            str = sprintf('%.1f', v);
+        case 'Gain'
+            str = sprintf('%.2f', v);
+        otherwise
+            str = sprintf('%.3f', v);
+    end
+end
+
+function e = onoff(tf)
+    if tf, e = 'on'; else, e = 'off'; end
+end

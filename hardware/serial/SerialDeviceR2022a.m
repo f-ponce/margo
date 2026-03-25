@@ -44,6 +44,12 @@ classdef SerialDeviceR2022a < SerialDeviceInterface
                 rethrow(exception);
             end
         end
+        
+        function delete(this)                                                    % ← NEW
+            if ~isempty(this.serialDevice) && isvalid(this.serialDevice)        % ← NEW
+                delete(this.serialDevice);                                       % ← NEW
+            end                                                                  % ← NEW
+        end                                                                      % ← NEW
 
         function write(this, data, dataType)
 

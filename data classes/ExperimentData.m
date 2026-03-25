@@ -30,7 +30,7 @@ classdef ExperimentData < dynamicprops
             % assign default meta data
             this.meta.path.dir = '';
             this.meta.path.name = '';
-            this.meta.roi.mode = 'grid';
+            this.meta.roi.mode = 'auto';
             this.meta.vignette.mode = 'auto';
             this.meta.track_mode = 'single';
             this.meta.initialize = true;
@@ -170,7 +170,7 @@ classdef ExperimentData < dynamicprops
             p.target_rate           = 30;
             p.mm_per_pix            = 1;
             p.units                 = 'pixels';
-            p.roi_mode              = 'grid';
+            p.roi_mode              = 'auto';
             p.sort_mode             = 'bounds';
             p.roi_tol               = 2.5000;
             p.edit_rois             = 0;
