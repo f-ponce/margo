@@ -1,5 +1,6 @@
 profiles/*
 hardware/projector_fit/*
 hardware/camera_calibration/*
-experiments/*
+camera_calibration_images_032726/*
+camera_calibrationSession_032726.mat
 *.asv

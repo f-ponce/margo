@@ -181,7 +181,7 @@ classdef ExperimentData < dynamicprops
             p.max_trace_duration    = 20;
             p.bg_mode               = 'light';
             p.bg_adjust             = false;
-            p.bg_auto               = true;
+            p.bg_auto               = false;
             p.noise_sample          = true;
             p.noise_sample_num      = 100;
             p.noise_skip_thresh     = 9;

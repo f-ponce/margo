@@ -25,6 +25,10 @@ if exist(cam_dir,'dir')==7
         target_file = target_file{find(~cellfun(@isempty, target_file), 1, 'first')};
         param_obj = load(cam_files{target_file}, target_name);
         expmt.hardware.cam.calibration = param_obj.(target_name);
+        %%%%%% FPonce edit start - default to using calibration if file found
+        handles.cam_calibrate_menu.UserData = true;
+        expmt.hardware.cam.calibrate = true;
+        %%%%%% FPonce edit end
     end
     
 end

@@ -46,29 +46,28 @@ if isfield(camInfo,'settings')
     end
 
 else
-    %%%%%% FPONCE - safe defaults on first run
-    fprintf('No saved camera settings found. Applying defaults.\n');
-    try, src.AcquisitionFrameRateEnable = 'True';   catch, end
-    try, src.AcquisitionFrameRate       = 30.0;     catch, end
-    try, src.ExposureAuto               = 'Off';    catch, end
-    try, src.ExposureTime               = 4999;     catch, end
-    try, src.GainAuto                   = 'Off';    catch, end
-    try, src.Gain                       = 10;        catch, end
-    try, src.GammaEnable                = 'True';   catch, end
-    try, src.Gamma                      = 0.8;      catch, end
-    try, src.BlackLevel                 = 0;        catch, end
+    %%%%%% FPonce edit start - safe defaults for Firefly USB (FlyCapture / pointgrey adaptor)
+    fprintf('No saved camera settings found. Applying Firefly USB defaults.\n');
+    try, src.FrameRateMode = 'Manual'; catch, end
+    try, src.FrameRate     = '15';     catch, end
+    try, src.ShutterMode   = 'Manual'; catch, end
+    try, src.Shutter       = 10.0;     catch, end  % ms
+    try, src.GainMode      = 'Manual'; catch, end
+    try, src.Gain          = 0;        catch, end
+    try, src.GammaMode     = 'Manual'; catch, end
+    try, src.Gamma         = 0.8;      catch, end
+    try, src.Brightness    = 0;        catch, end
+    camInfo.settings.FrameRateMode = 'Manual';
+    camInfo.settings.FrameRate     = '15';
+    camInfo.settings.ShutterMode   = 'Manual';
+    camInfo.settings.Shutter       = 10.0;
+    camInfo.settings.GainMode      = 'Manual';
+    camInfo.settings.Gain          = 0;
+    camInfo.settings.GammaMode     = 'Manual';
+    camInfo.settings.Gamma         = 0.8;
+    camInfo.settings.Brightness    = 0;
+    %%%%%% FPonce edit end
 
-    % save defaults so they persist as the baseline profile
-    camInfo.settings.AcquisitionFrameRateEnable = 'True';
-    camInfo.settings.AcquisitionFrameRate       = 30.0;
-    camInfo.settings.ExposureAuto               = 'Off';
-    camInfo.settings.ExposureTime               = 4999;
-    camInfo.settings.GainAuto                   = 'Off';
-    camInfo.settings.Gain                       = 0;
-    camInfo.settings.GammaEnable                = 'True';
-    camInfo.settings.Gamma                      = 0.8;
-    camInfo.settings.BlackLevel                 = 0;
-    %%%%%%
 end
 
 try
@@ -77,15 +76,12 @@ catch
     warning('Tried and failed to adjust the colorspace to grayscale');
 end
 
-
-%%%%%% FPONCE - always max throughput
-try
-    src.DeviceLinkThroughputLimit = 500000000;
-    camInfo.settings.DeviceLinkThroughputLimit = 500000000;
-catch
-    warning('Could not set DeviceLinkThroughputLimit to maximum.');
-end
-%%%%%%
+%%%%%% FPonce edit start - fixed settings, always applied regardless of profile
+try, vid.ReturnedColorSpace = 'grayscale'; catch, end
+try, src.WhiteBalanceRBMode = 'Manual'; catch, end
+pause(0.1),
+try, src.WhiteBalanceRB = [530 530]; catch, end  % neutral, no white balance shift
+%%%%%% FPonce edit end
 
 triggerconfig(vid,'manual');
 camInfo.vid = vid;
