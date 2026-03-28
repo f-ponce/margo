@@ -105,7 +105,7 @@ im = peekdata(expmt.hardware.cam.vid,1);
 if cam_xPixels ~= reg_data.cam_xPixels || cam_yPixels ~= reg_data.cam_yPixels
     
     x_scale = cam_xPixels/reg_data.cam_xPixels;
-    y_scale = cam_yPixels/reg_data.cam_yPixel\s;
+    y_scale = cam_yPixels/reg_data.cam_yPixels;
     cam_x = reg_data.cam_xCoords*x_scale;
     cam_y = reg_data.cam_yCoords*y_scale;
     proj_x = reg_data.proj_xCoords;
