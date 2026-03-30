@@ -36,6 +36,9 @@ if isfield(camInfo,'settings')
                     end
             end
             if set_prop
+                if ismember(names{i_src(i)}, {'Exposure','ExposureMode'})
+                    continue;
+                end
                 try
                     src.(names{i_src(i)}) = val;
                 catch ME
@@ -57,15 +60,6 @@ else
     try, src.GammaMode     = 'Manual'; catch, end
     try, src.Gamma         = 0.8;      catch, end
     try, src.Brightness    = 0;        catch, end
-    camInfo.settings.FrameRateMode = 'Manual';
-    camInfo.settings.FrameRate     = '15';
-    camInfo.settings.ShutterMode   = 'Manual';
-    camInfo.settings.Shutter       = 10.0;
-    camInfo.settings.GainMode      = 'Manual';
-    camInfo.settings.Gain          = 0;
-    camInfo.settings.GammaMode     = 'Manual';
-    camInfo.settings.Gamma         = 0.8;
-    camInfo.settings.Brightness    = 0;
     %%%%%% FPonce edit end
 
 end
@@ -79,7 +73,7 @@ end
 %%%%%% FPonce edit start - fixed settings, always applied regardless of profile
 try, vid.ReturnedColorSpace = 'grayscale'; catch, end
 try, src.WhiteBalanceRBMode = 'Manual'; catch, end
-pause(0.1),
+pause(0.1);
 try, src.WhiteBalanceRB = [530 530]; catch, end  % neutral, no white balance shift
 %%%%%% FPonce edit end
 

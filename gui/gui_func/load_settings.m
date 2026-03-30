@@ -77,8 +77,19 @@ else
     handles.cam_calibrate_menu.Checked = 'off';
 end
 
+% old.hardware = new.hardware;        % assign current values for hardware settings
 
-old.hardware = new.hardware;        % assign current values for hardware settings
+%%%%%% FPonce edit start - preserve saved camera settings when loading profile
+saved_cam_settings = [];
+if isfield(old.hardware.cam, 'settings')
+    saved_cam_settings = old.hardware.cam.settings;
+end
+old.hardware = new.hardware;
+if ~isempty(saved_cam_settings)
+    old.hardware.cam.settings = saved_cam_settings;
+end
+%%%%%% FPonce edit end
+
 old = reInitialize(old);                   % remove fields that must be re-defined each expmt
 old.hardware.cam.calibrate = handles.cam_calibrate_menu.UserData;
 
