@@ -7,7 +7,7 @@ names = fieldnames(info);
 if isfield(camInfo,'settings')
     % apply saved settings from profile in safe order
     % first apply frame rate enable and frame rate, then exposure, then rest
-    priority_props = {'AcquisitionFrameRateEnable','AcquisitionFrameRate','ExposureAuto','ExposureTime'};
+    priority_props = {'AcquisitionFrameRateEnabled','AcquisitionFrameRate','ExposureAuto','ExposureTime'};
     [i_src,i_set] = cmpCamSettings(src,camInfo.settings);
     set_names = fieldnames(camInfo.settings);
 
@@ -31,7 +31,7 @@ if isfield(camInfo,'settings')
                         set_prop = true;
                     end
                 case 'bounded'
-                    if all(val(:) >= constr(1)) && all(val(:) <= constr(2))  % fixed >= and <=
+                    if all(val(:) >= constr(1)) && all(val(:) <= constr(2))
                         set_prop = true;
                     end
             end
@@ -39,6 +39,13 @@ if isfield(camInfo,'settings')
                 if ismember(names{i_src(i)}, {'Exposure','ExposureMode'})
                     continue;
                 end
+                %%%%%% FPonce edit start - skip read-only properties
+                if isfield(info, names{i_src(i)}) && ...
+                        isfield(info.(names{i_src(i)}), 'ReadOnly') && ...
+                        strcmpi(info.(names{i_src(i)}).ReadOnly, 'always')
+                    continue;
+                end
+                %%%%%% FPonce edit end
                 try
                     src.(names{i_src(i)}) = val;
                 catch ME
@@ -48,18 +55,58 @@ if isfield(camInfo,'settings')
         end
     end
 
+    %%%%%% FPonce edit start - print actual camera settings after profile is loaded
+    verify_props = {'AcquisitionFrameRateEnabled','AcquisitionFrameRate',...
+        'ExposureAuto','ExposureTime','GainAuto','Gain',...
+        'GammaEnabled','Gamma','BlackLevel',...
+        'pgrExposureCompensationAuto','pgrExposureCompensation',...
+        'DeviceLinkThroughputLimit'};
+    fprintf('\n--- Camera Settings After Profile Load ---\n');
+    for k = 1:numel(verify_props)
+        fname = verify_props{k};
+        try
+            fprintf('  %s = %s\n', fname, num2str(src.(fname)));
+        catch
+            fprintf('  %s = UNREADABLE\n', fname);
+        end
+    end
+    fprintf('------------------------------------------\n\n');
+    %%%%%% FPonce edit end
+
 else
-    %%%%%% FPonce edit start - safe defaults for Firefly USB (FlyCapture / pointgrey adaptor)
-    fprintf('No saved camera settings found. Applying Firefly USB defaults.\n');
-    try, src.FrameRateMode = 'Manual'; catch, end
-    try, src.FrameRate     = '15';     catch, end
-    try, src.ShutterMode   = 'Manual'; catch, end
-    try, src.Shutter       = 10.0;     catch, end  % ms
-    try, src.GainMode      = 'Manual'; catch, end
-    try, src.Gain          = 0;        catch, end
-    try, src.GammaMode     = 'Manual'; catch, end
-    try, src.Gamma         = 0.8;      catch, end
-    try, src.Brightness    = 0;        catch, end
+    %%%%%% FPonce edit start - safe defaults for FLIR Firefly USB (gentl adaptor)
+    fprintf('No saved camera settings found. Applying defaults.\n');
+
+    try, src.AcquisitionFrameRateEnabled = true;      catch, end  % enable manual frame rate
+    try, src.AcquisitionFrameRate        = 25;        catch, end  % 25 fps (safe for 1288x964 within bandwidth limit)
+    try, src.ExposureAuto                = 'Off';     catch, end  % manual exposure
+    try, src.ExposureTime                = 10000;     catch, end  % 10ms in microseconds
+    try, src.GainAuto                    = 'Off';     catch, end  % manual gain
+    try, src.Gain                        = 0;         catch, end
+    try, src.GammaEnabled                = 'True';    catch, end  % must enable before setting value (enum: 'True'/'False')
+    pause(0.05);
+    try, src.Gamma                       = 0.8;       catch, end  % only works if GammaEnabled = true
+    try, src.BlackLevel                  = 1.367;     catch, end
+    try, src.pgrExposureCompensationAuto = 'Off';     catch, end
+    try, src.pgrExposureCompensation     = 0;         catch, end
+    try, src.DeviceLinkThroughputLimit   = src.DeviceMaxThroughput; catch, end  % set to camera's max bandwidth
+
+    % Print actual values from camera after applying defaults
+    verify_props = {'AcquisitionFrameRateEnabled','AcquisitionFrameRate',...
+        'ExposureAuto','ExposureTime','GainAuto','Gain',...
+        'GammaEnabled','Gamma','BlackLevel',...
+        'pgrExposureCompensationAuto','pgrExposureCompensation',...
+        'DeviceLinkThroughputLimit'};
+    fprintf('\n--- Camera Settings Verification ---\n');
+    for k = 1:numel(verify_props)
+        fname = verify_props{k};
+        try
+            fprintf('  %s = %s\n', fname, num2str(src.(fname)));
+        catch
+            fprintf('  %s = UNREADABLE\n', fname);
+        end
+    end
+    fprintf('------------------------------------\n\n');
     %%%%%% FPonce edit end
 
 end
@@ -72,96 +119,10 @@ end
 
 %%%%%% FPonce edit start - fixed settings, always applied regardless of profile
 try, vid.ReturnedColorSpace = 'grayscale'; catch, end
-try, src.WhiteBalanceRBMode = 'Manual'; catch, end
-pause(0.1);
-try, src.WhiteBalanceRB = [530 530]; catch, end  % neutral, no white balance shift
+try, src.DeviceLinkThroughputLimit = src.DeviceMaxThroughput; catch, end  % always enforce max bandwidth
+try, src.SharpnessAuto = 'Off'; catch, end  % prevent auto-adjustment of sharpness
 %%%%%% FPonce edit end
 
 triggerconfig(vid,'manual');
 camInfo.vid = vid;
 camInfo.src = src;
-
-
-
-
-
-
-
-
-
-% 
-% 
-% function camInfo=initializeCamera(camInfo)
-% 
-% vid = videoinput(camInfo.AdaptorName,camInfo.DeviceIDs{camInfo.activeID},camInfo.ActiveMode{:});
-% 
-% src = getselectedsource(vid);
-% info = propinfo(src);
-% names = fieldnames(info);
-% 
-% if isfield(camInfo,'settings')
-% 
-%     % query saved cam settings
-%     [i_src,i_set]=cmpCamSettings(src,camInfo.settings);
-%     set_names = fieldnames(camInfo.settings);
-% 
-%     for i = 1:length(i_src)
-% 
-%         % if property in settings list
-%         if ~isempty(camInfo.settings.(set_names{i_set(i)}))
-% 
-%             % query property value and constraints
-%             val = camInfo.settings.(set_names{i_set(i)});
-%             constr = info.(set_names{i_set(i)}).ConstraintValue;
-%             set_prop = false;
-% 
-%             % check to see if value falls in constraints
-%             switch info.(set_names{i_set(i)}).Constraint
-%                 case 'enum'
-%                     if ismember(val,constr)
-%                         set_prop = true;
-%                     end
-%                 case 'bounded'
-%                     if all(val(:) > constr(1)) && all(val(:) < constr(2))
-%                         set_prop = true;
-%                     end
-%             end
-% 
-%             % set the property
-%             if set_prop
-%                 try
-%                     src.(names{i_src(i)}) = val;
-%                 catch
-%                 end
-%             end
-%         end
-%     end
-% 
-% end
-% 
-% try
-%     vid.ReturnedColorSpace = 'grayscale';
-% catch
-%     warning('Tried and failed to agjust the colorspace to grayscale');
-% end
-% 
-% %%%%%%FPONCE EDIT
-% % Always set link throughput to maximum
-% try
-%     src.DeviceLinkThroughputLimit = 500000000;
-%     camInfo.settings.DeviceLinkThroughputLimit = 500000000;
-% catch
-%     warning('Could not set DeviceLinkThroughputLimit to maximum.');
-% end
-% %%%%%%
-% %%%%%%
-% 
-% 
-% triggerconfig(vid,'manual');
-% 
-% camInfo.vid = vid;
-% camInfo.src = src;
-% 
-% 
-% 
-% 

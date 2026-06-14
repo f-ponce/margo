@@ -54,18 +54,33 @@ else
     is_readonly = cellfun(@(n) strcmpi(info.(n).ReadOnly,'always'), ...
         prop_names(has_readonly));
     prop_names(has_readonly(is_readonly))=[];
+    %%%%%% FPonce edit start - hidden props list
+    valid = true(size(prop_names));
+    for k = 1:numel(prop_names)
+        try
+            src.(prop_names{k});
+        catch
+            valid(k) = false;
+        end
+    end
+    prop_names = prop_names(valid);
     prop_vals = cellfun(@(n) src.(n), prop_names, 'UniformOutput', false);
+    %%%%%% FPonce edit end
     settings = cat(1,prop_names',prop_vals');
     expmt.hardware.cam.settings = struct(settings{:});
 end
 
-%%%%%% FPonce edit start - hidden props list
-hidden_props = {'Strobe1','Strobe1Delay','Strobe1Duration','Strobe1Polarity',...
-                'Strobe2','Strobe2Delay','Strobe2Duration','Strobe2Polarity',...
-                'Strobe3','Strobe3Delay','Strobe3Duration','Strobe3Polarity',...
-                'TriggerDelay','TriggerDelayMode','TriggerParameter',...
-                'WhiteBalanceRB','WhiteBalanceRBMode',...
-                'Selected','Exposure','ExposureMode'};
+%%%%%% FPonce edit start - whitelist of user-adjustable properties only
+allowed_props = {...
+    'AcquisitionFrameRateEnabled', ...
+    'AcquisitionFrameRate', ...
+    'ExposureTime', ...
+    'Gain', ...
+    'GammaEnabled', ...
+    'Gamma', ...
+    'BlackLevel', ...
+    'Sharpness', ...
+    'pgrExposureCompensation'};
 %%%%%% FPonce edit end
 
 name_lengths = zeros(length(names),1);
@@ -78,8 +93,8 @@ hscale = max(name_lengths);
 nControls = 0;
 del = [];
 for i = 1:length(names)
-    %%%%%% FPonce edit start - hide properties that should not be user-adjustable
-    if ismember(names{i}, hidden_props)
+    %%%%%% FPonce edit start - only show whitelisted properties
+    if ~ismember(names{i}, allowed_props)
         del = [del i];
         continue;
     end
@@ -120,18 +135,14 @@ current_height = 0;
 fpos = gui_fig.Position;
 col_w = slider_w + edit_w*2 + hspacer;
 
-%%%%%% FPonce edit start - desc panel height
-desc_panel_h = edit_h * 12;
-%%%%%% FPonce edit end
-
-fig_size = [fpos(1:2)+2 col_w*nColumns (edit_h+pad)*13+pad];
+fig_size = [fpos(1:2)+2 col_w*nColumns (edit_h+pad)*nControls+pad*2];
 
 f = figure('Visible','on','Units','characters',...
     'Position',fig_size,'Name','Camera Settings');
 set(f,'MenuBar','none','Toolbar','none','resize','off','NumberTitle','off');
 
-%%%%%% FPonce edit start - close this window when margo closes
-set(f,'HandleVisibility','on','CloseRequestFcn',@(h,~)delete(h));
+%%%%%% FPonce edit start - close this window when margo closes, and print settings on close
+set(f,'HandleVisibility','on','CloseRequestFcn',@(h,~)close_and_print(h, src, allowed_props));
 addlistener(gui_fig,'ObjectBeingDestroyed',@(~,~)close_if_open(f));
 %%%%%% FPonce edit end
 
@@ -231,29 +242,26 @@ if (strcmpi(vid.Previewing,'off') && strcmpi(vid.Running,'on'))
     set(findall(f,'-property','Enable'),'Enable','off');
 end
 
-%%%%%% FPonce edit start - parameter descriptions at bottom of window
-uicontrol('Parent',f,'Style','text','String','Parameter Descriptions:',...
-    'Units','characters',...
-    'Position',[hspacer label_h*15+1 col_w*nColumns-hspacer*2 label_h],...
-    'HorizontalAlignment','left','FontWeight','bold','FontSize',7.5);
-desc_text = sprintf([...
-    'Brightness: Sets the black level (baseline darkness). \n\n'...
-    'Shutter: How long sensor is exposed to light each frame (ms). \n\n'...
-    'ShutterMode: Manual: user sets exposure time; Auto: camera adjusts it. \n\n'...
-    'Gain: Signal amplification (dB); higher = brighter but adds noise. (dB). \n\n'...
-    'GainMode: Manual: user sets gain; Auto: camera adjusts it. \n\n'...
-    'Gamma: Adjusts contrast of mid-level brightness, not overall brightness. \n\n'...
-    'GammaMode: Manual = gamma correction enabled; Off = linear (no correction). \n\n'...
-    'FrameRate: Frames per second (num images captured per second, fps). \n\n'...
-    'FrameRateMode: Manual: you set frame rate; Auto: camera selects it.']);
-uicontrol('Parent',f,'Style','text','String',desc_text,...
-    'Units','characters',...
-    'Position',[hspacer 0.5 col_w*nColumns-hspacer*2 label_h*15],...
-    'HorizontalAlignment','left','FontSize',7,...
-    'ForegroundColor',[0.4 0.4 0.4],'Max',2);
-%%%%%% FPonce edit end
+
 
 end
+
+%%%%%% FPonce edit start - print camera settings on close, then delete figure
+function close_and_print(f, src, allowed_props)
+    fprintf('\n--- Camera Settings on Close ---\n');
+    for k = 1:numel(allowed_props)
+        fname = allowed_props{k};
+        try
+            val = src.(fname);
+            fprintf('  %s = %s\n', fname, num2str(val));
+        catch
+            fprintf('  %s = UNREADABLE\n', fname);
+        end
+    end
+    fprintf('--------------------------------\n\n');
+    delete(f);
+end
+%%%%%% FPonce edit end
 
 %%%%%% FPonce edit start - helper to close cam settings when margo closes
 function close_if_open(f)
